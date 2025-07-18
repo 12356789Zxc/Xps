@@ -1,68 +1,51 @@
-import os
-import re
+import telebot
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import re
+import os
 
-TOKEN = "YOUR_BOT_API_TOKEN"  # Replace this with your real token
+BOT_TOKEN = os.getenv("BOT_TOKEN")  # Set this in Railway as environment variable
+bot = telebot.TeleBot(BOT_TOKEN)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Send me a xpshort.com or qaluri.com link to bypass.")
-
-def extract_final_url(url):
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
-
-        if "xpshort.com" in url:
-            session = requests.Session()
-            resp = session.get(url, headers=headers, timeout=10)
-            soup = BeautifulSoup(resp.text, "html.parser")
-            final_link = soup.find("a", attrs={"id": "go-link"})
-            if final_link and final_link.has_attr("href"):
-                return final_link["href"]
-            # Fallback if id not found
-            links = soup.find_all("a")
-            for link in links:
-                if link.get("href", "").startswith("http"):
-                    return link["href"]
-
-        elif "qaluri.com" in url:
-            session = requests.Session()
-            resp = session.get(url, headers=headers, timeout=10)
-            soup = BeautifulSoup(resp.text, "html.parser")
-            final_link = soup.find("a", attrs={"id": "go-link"})
-            if final_link and final_link.has_attr("href"):
-                return final_link["href"]
-            # Fallback
-            links = soup.find_all("a")
-            for link in links:
-                if link.get("href", "").startswith("http"):
-                    return link["href"]
-
-    except Exception as e:
-        print(f"Bypass error: {e}")
-    return None
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-
-    if "xpshort.com" in text or "qaluri.com" in text:
-        await update.message.reply_text("Bypassing, please wait...")
-
-        final_url = extract_final_url(text)
-        if final_url:
-            await update.message.reply_text(f"✅ Bypassed Link:\n{final_url}")
-        else:
-            await update.message.reply_text("❌ Failed to bypass the link. Try another one.")
+def bypass_adlinkfly(url):
+    if "xpshort.com" in url:
+        domain = "xpshort.com"
+    elif "qaluri.com" in url:
+        domain = "qaluri.com"
     else:
-        await update.message.reply_text("Please send a xpshort.com or qaluri.com link.")
+        return "❗ Please send a valid xpshort.com or qaluri.com link."
 
-if __name__ == "__main__":
-    app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    app.run_polling()
+    try:
+        session = requests.Session()
+        response = session.get(url)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        token_tag = soup.find("input", {"name": "_token"})
+
+        if not token_tag:
+            return "❗ Unable to find token on the page."
+
+        token = token_tag.get("value")
+        headers = {"X-Requested-With": "XMLHttpRequest"}
+        payload = {"_token": token}
+        go_link = f"https://{domain}/links/go"
+        final_response = session.post(go_link, headers=headers, data=payload)
+
+        if final_response.status_code == 200 and "url" in final_response.json():
+            return f"✅ Bypassed Link:\n{final_response.json()['url']}"
+        else:
+            return "❗ Failed to bypass the link. Try again."
+    except Exception as e:
+        return f"❗ Error occurred: {str(e)}"
+
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    url = message.text.strip()
+    if "xpshort.com" in url or "qaluri.com" in url:
+        bot.reply_to(message, "⏳ Bypassing the link, please wait...")
+        result = bypass_adlinkfly(url)
+        bot.reply_to(message, result)
+    else:
+        bot.reply_to(message, "❗ Please send a valid xpshort.com or qaluri.com link.")
+
+print("✅ Bot is running...")
+bot.polling()
