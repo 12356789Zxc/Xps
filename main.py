@@ -1,54 +1,39 @@
-import os
-import re
 import logging
+import re
 import requests
-from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
+import os
+from aiogram import Bot, Dispatcher, executor, types
 
-# Enable logging
+API_TOKEN = os.getenv("BOT_TOKEN")  # Reads the token from Railway environment
+
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-# Load Telegram Bot Token from environment variables
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN not set in environment variables!")
-    exit("❌ BOT_TOKEN not set. Set it in Railway or your .env file.")
-
-bot = Bot(token=BOT_TOKEN)
+bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-@dp.message_handler(commands=["start", "help"])
-async def send_welcome(message: types.Message):
-    logger.info(f"User {message.from_user.id} started the bot.")
-    await message.reply("👋 Send me an xpshort.com link and I’ll try to bypass it!")
+# Regex pattern to detect xpshort links
+XPSHORT_PATTERN = re.compile(r'(https?://xpshort\.com/\S+)')
+
+def bypass_xpshort(url):
+    try:
+        session = requests.Session()
+        response = session.head(url, allow_redirects=True, timeout=10)
+        return response.url
+    except Exception as e:
+        return f"❌ Error: {e}"
 
 @dp.message_handler()
 async def handle_message(message: types.Message):
-    url = message.text.strip()
+    links = XPSHORT_PATTERN.findall(message.text)
+    if not links:
+        return  # No xpshort link in message
 
-    if not re.match(r"https?://xpshort\.com/\S+", url):
-        logger.warning(f"User {message.from_user.id} sent invalid link: {url}")
-        await message.reply("❌ Please send a valid xpshort.com link.")
-        return
+    results = []
+    for link in links:
+        final_url = bypass_xpshort(link)
+        results.append(f"🔗 Original: {link}\n➡️ Final: {final_url}")
 
-    try:
-        headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(url, headers=headers, allow_redirects=True, timeout=10)
+    await message.reply("\n\n".join(results))
 
-        if response.ok:
-            bypassed_url = response.url
-            logger.info(f"Bypassed URL for user {message.from_user.id}: {bypassed_url}")
-            await message.reply(f"✅ Bypassed Link:\n\n{url} → {bypassed_url}")
-        else:
-            logger.error(f"Failed request for {url} - status code: {response.status_code}")
-            await message.reply("❌ Couldn't bypass this link. Please try another.")
-
-    except Exception as e:
-        logger.exception("Error during bypass")
-        await message.reply(f"❌ Error while bypassing:\n{str(e)}")
-
-if __name__ == "__main__":
-    logger.info("🚀 Bot is starting up...")
+if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
