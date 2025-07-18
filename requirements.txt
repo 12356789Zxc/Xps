@@ -1,3 +1,4 @@
-python-telegram-bot==20.6
-playwright
+aiogram==2.25.1
 requests
+beautifulsoup4
+
