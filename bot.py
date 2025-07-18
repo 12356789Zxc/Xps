@@ -1,42 +1,33 @@
-from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
-from playwright.sync_api import sync_playwright
-import asyncio
 import os
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+import requests
 
+# ✅ Load your BOT TOKEN securely from Railway variable
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-def bypass_xpshort(url):
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page()
-            page.goto(url, timeout=30000)
-            page.wait_for_timeout(10000)  # wait for redirect
-            final_url = page.url
-            browser.close()
-            return final_url
-    except Exception as e:
-        return f"❌ Error: {e}"
-
+# 🟢 /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Send any xpshort.com link to bypass.")
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    if text.startswith("https://xpshort.com/"):
-        await update.message.reply_text("⏳ Bypassing...")
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, bypass_xpshort, text)
-        await update.message.reply_text(f"🔗 Final link:\n{result}")
+# 🟢 Handles xpshort.com links
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text
+    if "xpshort.com/" in url:
+        try:
+            response = requests.get(url, allow_redirects=True, timeout=10)
+            final_url = response.url
+            await update.message.reply_text(f"🔗 Final link: {final_url}")
+        except Exception as e:
+            await update.message.reply_text("❌ Failed to bypass the link.")
     else:
         await update.message.reply_text("⚠️ Please send a valid xpshort.com link.")
 
-def main():
+# 🟢 Start the bot
+if __name__ == '__main__':
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
-    app.run_polling()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-if __name__ == "__main__":
-    main()
+    print("✅ Bot is running...")
+    app.run_polling()
