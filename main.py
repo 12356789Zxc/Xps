@@ -1,56 +1,39 @@
-import logging
-import requests
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 import os
+import re
+import requests
+from aiogram import Bot, Dispatcher, types
+from aiogram.utils import executor
 
-# Enable logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# Load Telegram Bot Token from Environment Variable
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Function to bypass xpshort links
-def bypass_xpshort(url):
-    try:
-        response = requests.get(url, allow_redirects=True, timeout=10)
-        return response.url
-    except Exception as e:
-        return f"❌ Error: {e}"
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(bot)
 
-# /start command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Hi! Send me any xpshort.com link and I’ll bypass it for you.")
+@dp.message_handler(commands=["start", "help"])
+async def send_welcome(message: types.Message):
+    await message.reply("👋 Send an xpshort.com link, and I'll try to bypass it.")
 
-# Handler for normal messages
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+@dp.message_handler()
+async def handle_message(message: types.Message):
+    url = message.text.strip()
 
-    if "xpshort.com/" in text:
-        await update.message.reply_text("⏳ Bypassing your link... Please wait.")
-        result = bypass_xpshort(text)
-        await update.message.reply_text(f"✅ Final URL:\n{result}")
-    else:
-        await update.message.reply_text("⚠️ Please send only valid xpshort.com links.")
-
-# Main bot function
-def main():
-    TOKEN = os.getenv("BOT_TOKEN")
-    if not TOKEN:
-        print("❌ BOT_TOKEN not set. Make sure it's added as an environment variable.")
+    if not re.match(r"https?://xpshort\.com/\S+", url):
+        await message.reply("❌ Please send a valid xpshort.com link.")
         return
 
-    app = ApplicationBuilder().token(TOKEN).build()
+    # === Fake Bypass Logic ===
+    # Replace this later with real bypass code
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+        # Placeholder: simulate a real link for now
+        response = requests.get(url, headers=headers, allow_redirects=True, timeout=10)
+        bypassed_url = response.url if response.ok else "https://example.com"
+        await message.reply(f"✅ Bypassed Link:\n\n{url} → {bypassed_url}")
+    except Exception as e:
+        await message.reply(f"❌ Failed to bypass link.\nError: {str(e)}")
 
-    # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Run bot
-    print("✅ Bot is running...")
-    app.run_polling()
-
-# Entry point
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    executor.start_polling(dp)
