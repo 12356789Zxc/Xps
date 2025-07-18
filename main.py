@@ -1,51 +1,61 @@
-import telebot
-import requests
-from bs4 import BeautifulSoup
-import re
 import os
+import re
+import requests
+from urllib.parse import urlparse
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Set this in Railway as environment variable
-bot = telebot.TeleBot(BOT_TOKEN)
+TOKEN = os.getenv("BOT_TOKEN")
 
-def bypass_adlinkfly(url):
-    if "xpshort.com" in url:
-        domain = "xpshort.com"
-    elif "qaluri.com" in url:
-        domain = "qaluri.com"
-    else:
-        return "❗ Please send a valid xpshort.com or qaluri.com link."
+# Function to bypass xpshort and qaluri
+def bypass_adlinkfly(url: str) -> str:
+    session = requests.Session()
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+    }
 
     try:
-        session = requests.Session()
-        response = session.get(url)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        token_tag = soup.find("input", {"name": "_token"})
+        res = session.get(url, headers=headers)
+        final_url = res.url
 
-        if not token_tag:
-            return "❗ Unable to find token on the page."
-
-        token = token_tag.get("value")
-        headers = {"X-Requested-With": "XMLHttpRequest"}
-        payload = {"_token": token}
-        go_link = f"https://{domain}/links/go"
-        final_response = session.post(go_link, headers=headers, data=payload)
-
-        if final_response.status_code == 200 and "url" in final_response.json():
-            return f"✅ Bypassed Link:\n{final_response.json()['url']}"
-        else:
-            return "❗ Failed to bypass the link. Try again."
+        if "go?" in final_url or "locked" in final_url:
+            parts = final_url.split("?")
+            main = parts[0].replace("go", "links/go")
+            token = parts[1]
+            api_url = f"{main}?{token}"
+            response = session.get(api_url, headers=headers)
+            if response.status_code == 200 and "url" in response.text:
+                return response.text.split("url\":\"")[1].split("\"")[0].replace("\\", "")
     except Exception as e:
-        return f"❗ Error occurred: {str(e)}"
+        print("Bypass error:", e)
 
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
-    url = message.text.strip()
-    if "xpshort.com" in url or "qaluri.com" in url:
-        bot.reply_to(message, "⏳ Bypassing the link, please wait...")
-        result = bypass_adlinkfly(url)
-        bot.reply_to(message, result)
+    return None
+
+# Start command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔗 Send me a link from xpshort.com or qaluri.com to bypass it!")
+
+# Handle messages
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text.strip()
+
+    if any(domain in url for domain in ["xpshort.com", "qaluri.com"]):
+        await update.message.reply_text("⏳ Bypassing link... please wait.")
+        final_link = bypass_adlinkfly(url)
+
+        if final_link:
+            await update.message.reply_text(f"✅ Final Link:\n{final_link}")
+        else:
+            await update.message.reply_text("❌ Failed to bypass the link. Please check and try again.")
     else:
-        bot.reply_to(message, "❗ Please send a valid xpshort.com or qaluri.com link.")
+        await update.message.reply_text("❗ Please send a valid xpshort.com or qaluri.com link.")
 
-print("✅ Bot is running...")
-bot.polling()
+# Run the bot
+if __name__ == "__main__":
+    if not TOKEN:
+        print("❌ BOT_TOKEN is not set. Please set it in Railway's environment variables.")
+    else:
+        app = ApplicationBuilder().token(TOKEN).build()
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        app.run_polling()
